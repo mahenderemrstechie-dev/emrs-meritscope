@@ -1,0 +1,6 @@
+{
+  "framework": null,
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist/emrs-meritscope/browser",
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+}
