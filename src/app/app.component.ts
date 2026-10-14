@@ -227,7 +227,7 @@ export class AppComponent implements OnInit {
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval:null, raw:false });
       const parsed: ImportedCandidate[] = []; let invalidScores = 0;
       rows.forEach((row, index) => {
-        const fields = new Map(Object.entries(row).map(([k,v]) => [this.normaliseHeader(k), v]));
+        const fields = new Map<string, unknown>(); Object.entries(row).forEach(([k,v]) => fields.set(this.normaliseHeader(k), v));
         const scoreRaw = this.firstField(fields, ['tier2score','tier2marks','tier2totalmarks','score','marks','totalmarks','obtainedmarks','finalscore','tier2']);
         const score = this.parseScore(scoreRaw);
         if (score === null || score < 0 || score > 100) { invalidScores++; return; }
