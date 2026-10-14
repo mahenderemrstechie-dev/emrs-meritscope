@@ -44,7 +44,7 @@ interface CategoryView extends CategoryStat { shared_count: number; imported_cou
   <main class="page-shell">
     <section class="notice"><strong>Important:</strong> This is an independent, candidate-submitted analysis tool and is not affiliated with NESTS/EMRS. Figures are survey insights, not official merit lists or cutoffs. Do not submit sensitive identity numbers or certificate scans.</section>
     <section id="dashboard" class="section-heading"><div><div class="eyebrow green">OVERVIEW · BUSINESS INTELLIGENCE</div><h2>Candidate merit dashboard</h2><p>Combined shared submissions and the currently imported spreadsheet.</p></div><button class="btn btn-outline" (click)="refreshDashboard()" [disabled]="loading">{{ loading ? 'Refreshing…' : '↻ Refresh shared data' }}</button></section>
-    <div class="source-strip"><span class="source-dot shared-dot"></span> Shared database <strong>{{ shared.total }}</strong><span class="source-dot imported-dot"></span> Imported file <strong>{{ importedCandidates.length }}</strong><span class="source-note">Imported file is local to this browser session.</span></div>
+    <div class="source-strip"><span class="source-dot shared-dot"></span> Shared database <strong>{{ shared.total }}</strong><span class="source-dot imported-dot"></span> Imported file <strong>{{ importedCandidates.length }}</strong><span class="source-note">Preview only until saved by an authorised admin.</span></div>
     <div class="stats-grid">
       <article class="stat-card"><span>Combined candidates</span><strong>{{ combined.total }}</strong><small>{{ shared.total }} shared + {{ importedCandidates.length }} imported</small></article>
       <article class="stat-card"><span>Scored 90+</span><strong>{{ combined.score90 }}</strong><small>{{ percent(combined.score90) }} of combined scores</small></article>
@@ -119,8 +119,8 @@ interface CategoryView extends CategoryStat { shared_count: number; imported_cou
       <div *ngIf="adminImportSummary" class="import-summary">{{ adminImportSummary }}</div>
     </section>
     <section id="reports" class="panel reports-panel"><div class="panel-title"><div><div class="eyebrow green">DATA TOOLS</div><h2>Import & export reports</h2><p>Import a CSV/Excel file. Each import replaces the prior local import so it isn't accidentally counted twice.</p></div></div>
-      <div class="report-actions"><label class="btn btn-outline upload-btn">Import Excel / CSV<input type="file" accept=".xlsx,.xls,.csv" (change)="importFile($event)" /></label><button class="btn btn-outline" (click)="clearImport()" [disabled]="!importedCandidates.length">Clear imported data</button><button class="btn btn-outline" (click)="downloadCsv()">Download combined CSV</button><button class="btn btn-primary" (click)="exportPdf()">Export combined PDF</button></div>
-      <div *ngIf="importSummary" class="import-summary">{{ importSummary }}</div><p class="form-footnote">Supported score headers include Tier 2 Score, Tier2 Score, Score, Marks, and Total Marks. Post/category aliases are normalised where possible. Imported rows remain in this browser session only and are not uploaded to Supabase.</p>
+      <div class="report-actions"><label class="btn btn-outline upload-btn">Preview Excel / CSV<input type="file" accept=".xlsx,.xls,.csv" (change)="importFile($event)" /></label><a class="btn btn-primary" href="#admin-import">Save imported file to Supabase ↓</a><button class="btn btn-outline" (click)="clearImport()" [disabled]="!importedCandidates.length">Clear imported data</button><button class="btn btn-outline" (click)="downloadCsv()">Download combined CSV</button><button class="btn btn-primary" (click)="exportPdf()">Export combined PDF</button></div>
+      <div *ngIf="importSummary" class="import-summary">{{ importSummary }}</div><p class="form-footnote">Supported score headers include Tier 2 Score, Tier2 Score, Score, Marks, and Total Marks. Post/category aliases are normalised where possible. Previewing a file does not save it. To persist TGT CS merit-list rows, use the Save imported file to Supabase link, sign in as an allow-listed admin, confirm the file, and run the protected import. Other spreadsheet formats cannot be saved through this restricted merit-list importer.</p>
     </section>
     <footer>EMRS MeritScope · Independent candidate analysis · Not an official recruitment portal</footer>
   </main>
@@ -255,10 +255,13 @@ export class AppComponent implements OnInit {
         parsed.push({ post:this.normalisePost(postRaw) ?? 'Unknown', category:this.normaliseCategory(categoryRaw) ?? 'Unknown', score, scoreType:this.normaliseHeader(String(typeRaw ?? '')).includes('verif')?'Verified':'Estimated', sourceRow:index+2 });
       });
       this.importedCandidates = parsed;
+      this.adminFile = file;
+      this.adminImportConfirmed = false;
+      this.adminImportSummary = 'File ready for database import. Sign in as an authorised admin, confirm this is the TGT CS merit list, then select Validate and import into Supabase. Previewing alone does not save records.';
       const unknownCategory = parsed.filter(r=>r.category==='Unknown').length, unknownPost = parsed.filter(r=>r.post==='Unknown').length;
       const m = this.importedMetric;
       this.importSummary = `${file.name}: ${rows.length} spreadsheet rows read; ${parsed.length} valid scores included; ${invalidScores} rows skipped for missing/invalid score or score outside 0–100. ${unknownCategory} valid-score rows have an unrecognised/missing category; ${unknownPost} have an unrecognised/missing post. Imported file replaces the previous import. Imported score bands: 90+ ${m.score90}, 85+ ${m.score85}, 80+ ${m.score80}. Review the category/post columns if rows appear under Unknown.`;
-      this.setStatus(`Imported ${parsed.length} valid score rows. Dashboard and charts now combine them with shared submissions.`, false);
+      this.setStatus(`Previewed ${parsed.length} valid score rows locally. NOT saved to Supabase yet. Use Save imported file to Supabase and complete the authorised admin import.`, false);
     } catch (error) { this.setStatus(`Could not read this file: ${error instanceof Error ? error.message : 'invalid spreadsheet'}. Please use a valid Excel or CSV file.`, true); }
     input.value = '';
   }
@@ -334,6 +337,7 @@ export class AppComponent implements OnInit {
         inserted+=Number(result?.inserted??0); skipped+=Number(result?.skipped??0);
       }
       this.importedCandidates=[];
+      this.importSummary = `Saved to Supabase: ${inserted} new records, ${skipped} existing ranks skipped. Local preview cleared to prevent double-counting.`;
       this.adminImportSummary=`Import finished for ${filename}: ${rows.length} spreadsheet rows read; ${parsed.length} valid rows sent; ${inserted} inserted; ${skipped} already-existing ranks skipped; ${invalid} invalid rows skipped. Existing records were not overwritten. Refreshing shared dashboard…`;
       await this.refreshDashboard();
       this.adminFile=null; this.adminImportConfirmed=false;
