@@ -44,9 +44,9 @@ interface CategoryView extends CategoryStat { shared_count: number; imported_cou
   <main class="page-shell">
     <section class="notice"><strong>Important:</strong> This is an independent, candidate-submitted analysis tool and is not affiliated with NESTS/EMRS. Figures are survey insights, not official merit lists or cutoffs. Do not submit sensitive identity numbers or certificate scans.</section>
     <section id="dashboard" class="section-heading"><div><div class="eyebrow green">OVERVIEW · BUSINESS INTELLIGENCE</div><h2>Candidate merit dashboard</h2><p>Combined shared submissions and the currently imported spreadsheet.</p></div><button class="btn btn-outline" (click)="refreshDashboard()" [disabled]="loading">{{ loading ? 'Refreshing…' : '↻ Refresh shared data' }}</button></section>
-    <div class="source-strip"><span class="source-dot shared-dot"></span> Shared database <strong>{{ shared.total_submissions }}</strong><span class="source-dot imported-dot"></span> Imported file <strong>{{ importedCandidates.length }}</strong><span class="source-note">Imported file is local to this browser session.</span></div>
+    <div class="source-strip"><span class="source-dot shared-dot"></span> Shared database <strong>{{ shared.total }}</strong><span class="source-dot imported-dot"></span> Imported file <strong>{{ importedCandidates.length }}</strong><span class="source-note">Imported file is local to this browser session.</span></div>
     <div class="stats-grid">
-      <article class="stat-card"><span>Combined candidates</span><strong>{{ combined.total }}</strong><small>{{ shared.total_submissions }} shared + {{ importedCandidates.length }} imported</small></article>
+      <article class="stat-card"><span>Combined candidates</span><strong>{{ combined.total }}</strong><small>{{ shared.total }} shared + {{ importedCandidates.length }} imported</small></article>
       <article class="stat-card"><span>Scored 90+</span><strong>{{ combined.score90 }}</strong><small>{{ percent(combined.score90) }} of combined scores</small></article>
       <article class="stat-card"><span>Scored 85+</span><strong>{{ combined.score85 }}</strong><small>{{ percent(combined.score85) }} of combined scores</small></article>
       <article class="stat-card"><span>Scored 80+</span><strong>{{ combined.score80 }}</strong><small>{{ percent(combined.score80) }} of combined scores</small></article>
@@ -64,7 +64,7 @@ interface CategoryView extends CategoryStat { shared_count: number; imported_cou
       </article>
       <article class="panel chart-panel"><div class="panel-title"><div><div class="eyebrow green">DATA COVERAGE</div><h2>Where the data comes from</h2><p>Combined analysis uses two distinct sources.</p></div></div>
         <div class="source-chart">
-          <div class="source-chart-item"><div class="source-chart-head"><span><i class="legend-dot shared-dot"></i> Shared submissions</span><strong>{{ shared.total_submissions }}</strong></div><div class="chart-track"><div class="chart-fill shared-fill" [style.width.%]="barPercent(shared.total_submissions, combined.total)"></div></div></div>
+          <div class="source-chart-item"><div class="source-chart-head"><span><i class="legend-dot shared-dot"></i> Shared submissions</span><strong>{{ shared.total }}</strong></div><div class="chart-track"><div class="chart-fill shared-fill" [style.width.%]="barPercent(shared.total, combined.total)"></div></div></div>
           <div class="source-chart-item"><div class="source-chart-head"><span><i class="legend-dot imported-dot"></i> Imported rows</span><strong>{{ importedCandidates.length }}</strong></div><div class="chart-track"><div class="chart-fill imported-fill" [style.width.%]="barPercent(importedCandidates.length, combined.total)"></div></div></div>
           <div class="mini-metrics"><div><span>Imported in this session</span><strong>{{ importedCandidates.length }}</strong></div><div><span>Categories recognised</span><strong>{{ recognisedImportedCount }}</strong></div><div><span>Needs category/post review</span><strong>{{ reviewImportedCount }}</strong></div></div>
         </div>
