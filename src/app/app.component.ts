@@ -53,6 +53,22 @@ interface CategoryView extends CategoryStat { shared_count: number; imported_cou
       <article class="stat-card"><span>Combined average</span><strong>{{ combined.avg === null ? '—' : combined.avg.toFixed(2) }}</strong><small>Weighted across all valid scores</small></article>
       <article class="stat-card"><span>Highest score</span><strong>{{ combined.highest === null ? '—' : combined.highest.toFixed(2) }}</strong><small>Candidate-reported</small></article>
     </div>
+    <section id="rank-predictor" class="panel rank-predictor-panel">
+      <div class="panel-title"><div><div class="eyebrow green">RANK PREDICTOR</div><h2>Percentile & estimated overall rank</h2><p>Compare your score with stored submissions for the selected post. This is an indicative sample ranking, not an official recruitment rank.</p></div><span class="pill">Live sample</span></div>
+      <div class="rank-inputs">
+        <label>Post<select [(ngModel)]="rankPost" name="rankPost"><option value="TGT CS">TGT Computer Science</option><option value="PGT CS">PGT Computer Science</option></select></label>
+        <label>Your Tier 2 score (out of 100)<input type="number" [(ngModel)]="rankScore" name="rankScore" min="0" max="100" step="0.01" placeholder="e.g. 86.50" /></label>
+        <label>Estimated total candidates for this post<input type="number" [(ngModel)]="estimatedCandidatePool" name="estimatedCandidatePool" min="1" max="10000000" step="1" placeholder="Enter an estimate" /></label>
+        <button class="btn btn-primary" (click)="calculateRank()" [disabled]="rankLoading || rankScore === null || rankScore < 0 || rankScore > 100 || !estimatedCandidatePool || estimatedCandidatePool < 1">{{ rankLoading ? 'Calculating…' : 'Calculate rank estimate' }}</button>
+      </div>
+      <div *ngIf="rankError" class="status error">{{ rankError }}</div>
+      <div *ngIf="rankPrediction as prediction" class="rank-results">
+        <div class="rank-result-card"><span>Rank among submitted scores</span><strong>{{ prediction.submittedRank === null ? '—' : '#' + prediction.submittedRank.toLocaleString() }}</strong><small>Out of {{ prediction.submittedTotal.toLocaleString() }} stored {{ rankPost }} scores</small></div>
+        <div class="rank-result-card"><span>Estimated percentile</span><strong>{{ prediction.percentile === null ? '—' : prediction.percentile.toFixed(2) + '%' }}</strong><small>Based on stored scores at or below yours</small></div>
+        <div class="rank-result-card"><span>Estimated overall rank</span><strong>{{ prediction.estimatedRank === null ? '—' : '#' + prediction.estimatedRank.toLocaleString() }}</strong><small>Assumes {{ estimatedCandidatePool.toLocaleString() }} total candidates</small></div>
+      </div>
+      <p class="form-footnote">Important: the sample rank uses records in Supabase for the selected post. A normal spreadsheet import stays in this browser session and is not included in the rank API; an authorised persistent import is included. The overall-rank estimate assumes your submitted-score sample is representative and can be inaccurate when the sample is small or biased.</p>
+    </section>
     <div *ngIf="!isConfigured" class="warning"><strong>Database setup pending.</strong> Configure the Supabase publishable key in <code>src/environments/environment.ts</code> and run <code>supabase/schema.sql</code>. Local imports can still be analysed.</div>
     <div *ngIf="statusMessage" class="status" [class.error]="statusIsError" role="status">{{ statusMessage }}</div>
 
@@ -137,6 +153,8 @@ export class AppComponent implements OnInit {
   adminFile: File | null = null; adminImportSummary = ''; private adminUserId: string | null = null;
   get isConfigured(): boolean { return !!this.supabase; }
   loading = false; submitting = false; consent = false; statusMessage = ''; statusIsError = false; importSummary = ''; postFilter = 'All';
+  rankPost: Post = 'TGT CS'; rankScore: number | null = null; estimatedCandidatePool = 12000;
+  rankLoading = false; rankError = ''; rankPrediction: { submittedTotal: number; submittedRank: number | null; percentile: number | null; estimatedRank: number | null } | null = null;
   form: CandidateSubmission = { candidate_name: '', post_applied: 'TGT CS', category: 'OBC-NCL', tier1_qualified: true, tier1_category: null, tier2_score: 0, relaxation_used: 'Prefer not to say', score_type: 'Estimated' };
 
   constructor() {
@@ -221,6 +239,28 @@ export class AppComponent implements OnInit {
       this.sharedDashboard = { total_submissions:Number(d.total_submissions||0), score_90_plus:Number(d.score_90_plus||0), score_85_plus:Number(d.score_85_plus||0), score_80_plus:Number(d.score_80_plus||0), average_score:d.average_score==null?null:Number(d.average_score), highest_score:d.highest_score==null?null:Number(d.highest_score), by_post_category:Array.isArray(d.by_post_category)?d.by_post_category:[] };
       this.setStatus('Shared database refreshed. Combined analytics include the current imported file.', false);
     }
+  }
+  async calculateRank(): Promise<void> {
+    this.rankError = ''; this.rankPrediction = null;
+    const score = Number(this.rankScore), pool = Number(this.estimatedCandidatePool);
+    if (!this.supabase) { this.rankError = 'Supabase is not configured. Configure the project and apply the rank-predictor SQL migration first.'; return; }
+    if (!Number.isFinite(score) || score < 0 || score > 100 || !Number.isInteger(pool) || pool < 1 || pool > 10000000) {
+      this.rankError = 'Enter a score from 0 to 100 and a whole-number candidate pool from 1 to 10,000,000.'; return;
+    }
+    this.rankLoading = true;
+    try {
+      const { data, error } = await this.supabase.rpc('get_rank_prediction', { p_post_applied: this.rankPost, p_tier2_score: score });
+      if (error) throw new Error(error.message);
+      const result = data as { submitted_total?: number; submitted_rank?: number | null; percentile?: number | null } | null;
+      const total = Number(result?.submitted_total ?? 0);
+      const percentile = result?.percentile == null ? null : Number(result.percentile);
+      const submittedRank = result?.submitted_rank == null ? null : Number(result.submitted_rank);
+      const estimatedRank = percentile === null || total === 0 ? null : Math.max(1, Math.ceil((100 - percentile) / 100 * pool));
+      this.rankPrediction = { submittedTotal: total, submittedRank, percentile, estimatedRank };
+      if (!total) this.rankError = 'No stored scores found for this post yet. Import authorised merit-list data or wait for candidate submissions.';
+    } catch (error) {
+      this.rankError = `Rank prediction failed: ${error instanceof Error ? error.message : 'unknown error'}. Apply supabase/migrations/20261014_rank_predictor.sql in the Supabase SQL Editor.`;
+    } finally { this.rankLoading = false; }
   }
   async submitCandidate(): Promise<void> {
     if (!this.supabase) { this.setStatus('Supabase is not configured yet. Imported data can still be analysed locally.', true); return; }
