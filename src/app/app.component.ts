@@ -318,7 +318,7 @@ export class AppComponent implements OnInit {
         const name=String(this.firstField(fields,['name','candidatename','candidate','fullname'])??'').trim();
         const category=this.normaliseCategory(this.firstField(fields,['category','applicationcategory','socialcategory','reservationcategory','cat']));
         const score=this.parseScore(this.firstField(fields,['marks','score','tier2score','tier2marks','totalmarks']));
-        if(!Number.isInteger(rank)||rank<1||!name||!category||score===null||score<0||score>100){invalid++;return;}
+        if(!Number.isInteger(rank)||rank<1||!name||name.length>100||!category||score===null||score<0||score>100){invalid++;return;}
         const age=String(this.firstField(fields,['agerelaxed','agerelaxation','relaxationused'])??'').trim().toLowerCase();
         const relaxation=age==='yes'||age==='true'?'Yes':age==='no'||age==='false'?'No':'Prefer not to say';
         const dv=String(this.firstField(fields,['dvstatus','documentverificationstatus'])??'Not Specified').trim().slice(0,100)||'Not Specified';
