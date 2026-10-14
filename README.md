@@ -4,31 +4,57 @@ Independent, unofficial candidate-submitted score analysis for EMRS TGT Computer
 
 ## Features
 - Candidate submission form and aggregate-only Supabase dashboard.
-- Combined BI metrics across shared Supabase submissions and one locally imported Excel/CSV file.
-- Score threshold counts (90+, 85+, 80+), source comparison, average score by category, and TGT/PGT comparison charts.
-- Category/post analysis showing combined, shared, and imported counts, average, highest score, and threshold counts.
-- Import validation: recognizes common score/post/category column aliases, normalizes known categories, and clearly reports rows with missing/unknown categories or posts.
-- Combined CSV and PDF exports.
-- Responsive styling for desktop and mobile.
+- Combined BI metrics across shared submissions and local imported CSV/Excel scores.
+- Score threshold, source comparison, category average and TGT/PGT charts.
+- Combined category/post breakdown, including shared/imported counts.
+- Combined CSV and PDF reports.
+- Restricted admin workflow for importing the TGT CS merit list into Supabase, with server-side admin allow-list validation, batch inserts and idempotent rank keys.
 
-## Data handling
-Shared data is retrieved through the aggregate-only `get_public_dashboard()` RPC. Imported spreadsheet rows are held in memory in the current browser session and are not uploaded to Supabase or shared with other visitors. A new import replaces the previous local import to avoid double counting. The imported dataset is added to shared counts for the dashboard while preserving separate source counts.
+## Supabase setup
+The frontend configuration points to project `ggumftjadfhofenealxs` using the publishable key supplied by the project owner. Browser publishable keys are intended for frontend use. Never place a database password or service-role/secret key in frontend code or GitHub.
 
-The importer assumes Tier 2 scores are out of 100. Confirm the official score maximum before launch and update both SQL constraints and frontend validation if required. Rows with invalid/missing scores or scores outside 0–100 are skipped; rows with valid scores but unknown post/category are retained under `Unknown` so they remain visible instead of being silently dropped or misclassified.
+1. In Supabase Dashboard for project `ggumftjadfhofenealxs`, open SQL Editor.
+2. Review and run `supabase/schema.sql` if the base schema is not already present.
+3. Run `supabase/migrations/20261014_admin_merit_import.sql` after the base schema. This adds private import metadata, an admin allow-list, and the protected import RPC. It does not import any CSV by itself.
+4. In Supabase Dashboard → Authentication → Users, create a dedicated admin account. Use a strong unique password and enable appropriate account security.
+5. Copy the Auth user's UUID. In SQL Editor, allow-list that exact user:
+   ```sql
+   insert into public.admin_users(user_id)
+   values ('PASTE-AUTH-USER-UUID-HERE');
+   ```
+   Do not allow-list public users. Only an explicitly allow-listed signed-in account can call `admin_import_merit_list`.
+6. Verify that `public.candidate_submissions`, `public.admin_users`, and `public.admin_import_merit_list(jsonb)` exist before using the import panel.
 
-## Configure and run
-1. Use Node.js 20 or 22.
-2. Run `npm install`.
-3. The browser configuration in `src/environments/environment.ts` points to the supplied Supabase project URL and publishable key. Publishable keys are intended for browser use; never add a database password or service-role/secret key to frontend code.
-4. In Supabase Dashboard for project `vrvfdanppwbcsdjheswe`, open SQL Editor and run `supabase/schema.sql` after reviewing it. This creates the table, insert policy, and aggregate dashboard RPC. It has not been executed by this repository change.
-5. Run locally with `npm start` and open `http://localhost:4200`.
+The migration keeps candidate records private: public visitors receive aggregate dashboard data only. It does not grant public SELECT access to candidate rows. Anonymous public submissions remain enabled as before; add CAPTCHA/rate limiting or authentication before widely sharing the form.
 
-## Vercel
-Import this GitHub repository into Vercel. Build command: `npm run build`; output directory: `dist/emrs-meritscope/browser`. Confirm the build and live Supabase RPC work before sharing the site.
+## Import the TGT CS merit list
+1. Confirm that the CSV is specifically the TGT Computer Science list and that `Marks` are out of 100. The migration intentionally maps the list to `TGT CS`.
+2. Sign in through the **Import merit list to shared database** panel with the allow-listed admin account.
+3. Select the CSV/XLSX file containing `Rank`, `Name`, `Category`, `Marks`, `Age Relaxed`, `DV Status`, and `Other Govt Job`.
+4. Confirm the import checkbox and click **Validate and import into Supabase**.
+5. Review the inserted/skipped/invalid counts and refresh the shared dashboard.
 
-## Production cautions
-- Anonymous public inserts can be spammed. Add CAPTCHA/rate limiting or authenticated submissions before widely sharing the form.
-- Do not add public SELECT access to individual candidate rows or expose candidate names.
-- The `Verified` score flag is self-reported and not independently verified.
-- The survey may be biased and should not be treated as official selection/cutoff information.
-- Imported rows are browser-local. To share them globally, implement a controlled admin-only import path with validation and audit trail rather than a public bulk insert.
+The import validates rank, name, category and marks, retains age-relaxation and document-verification metadata, and sends batches of up to 100 records. It uses an idempotency key based on the TGT CS merit-list rank, so retrying the same file skips ranks already inserted rather than duplicating them. Existing records are not overwritten. If a row has changed since a prior import, investigate it before editing the database manually.
+
+Imported candidate names and row metadata are stored in the private table, not in the public Git repository. Public analytics expose only aggregates. The importer maps `Age Relaxed` to the existing relaxation field and keeps `DV Status` / `Other Govt Job` in dedicated metadata columns. It does not infer Tier 1 qualification; imported rows store that field as NULL.
+
+## Local development and deployment
+Use Node.js 20 or 22:
+
+```bash
+npm install
+npm start
+```
+
+Open `http://localhost:4200`. Before production, run `npm run build` and test the submission flow, public aggregate RPC, admin sign-in, a small import, duplicate re-import, and CSV/PDF exports.
+
+For Vercel, use build command `npm run build` and output directory `dist/emrs-meritscope/browser`. Verify deployment logs and the live Supabase connection before sharing the site.
+
+## Accuracy and security notes
+- This site is unofficial. Survey data and cutoff estimates are not official selection outcomes.
+- The imported CSV is candidate data; do not commit it to the public repository.
+- Only add a trusted admin Auth UUID to `public.admin_users`. Never expose a service-role key in browser code.
+- The `Verified` form flag is self-reported, not independently verified.
+- Confirm the exam's official score scale before import; current validation assumes 0–100.
+- The public form can receive fake submissions; CAPTCHA/rate limiting or authenticated submission is recommended.
+- A successful build, SQL migration, and live import must be verified in the user's own Supabase/Vercel projects; this code change does not execute SQL or upload the CSV automatically.
