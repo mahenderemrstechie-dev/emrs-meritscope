@@ -5,7 +5,8 @@ Independent, unofficial candidate-submitted score analysis for EMRS TGT Computer
 ## Features
 - Candidate submission form and aggregate-only Supabase dashboard.
 - Combined BI metrics across shared submissions and local imported CSV/Excel scores.
-- Score threshold, source comparison, category average and TGT/PGT charts.
+- Score threshold, source comparison, category average and TGT/PGT BI charts.
+- Rank predictor showing rank among stored submissions, percentile, and an explicitly assumption-based estimated overall rank.
 - Combined category/post breakdown, including shared/imported counts.
 - Combined CSV and PDF reports.
 - Restricted admin workflow for importing the TGT CS merit list into Supabase, with server-side admin allow-list validation, batch inserts and idempotent rank keys.
@@ -16,6 +17,8 @@ The frontend configuration points to project `ggumftjadfhofenealxs` using the pu
 1. In Supabase Dashboard for project `ggumftjadfhofenealxs`, open SQL Editor.
 2. Review and run `supabase/schema.sql` if the base schema is not already present.
 3. Run `supabase/migrations/20261014_admin_merit_import.sql` after the base schema. This adds private import metadata, an admin allow-list, and the protected import RPC. It does not import any CSV by itself.
+4. Run `supabase/migrations/20261014_rank_predictor.sql`. This adds `get_rank_prediction(text, numeric)`, which returns only aggregate rank/percentile data for the selected post and supplied score.
+5. Continue with the admin account setup below.
 4. In Supabase Dashboard → Authentication → Users, create a dedicated admin account. Use a strong unique password and enable appropriate account security.
 5. Copy the Auth user's UUID. In SQL Editor, allow-list that exact user:
    ```sql
