@@ -1,7 +1,7 @@
-// Public browser config only. Supabase publishable/anon key is designed for frontend use
-// when Row Level Security is enabled. Never place a service-role key or DB password here.
+// Browser-safe configuration. Supabase publishable keys are intended for frontend use.
+// Never place a database password or service-role/secret key in this file.
 export const environment = {
   production: false,
-  supabaseUrl: 'https://vrvfdanppwbcsdjheswe.supabase.co',
-  supabaseKey: 'REPLACE_WITH_YOUR_SUPABASE_PUBLISHABLE_KEY'
+  supabaseUrl: 'https://ggumftjadfhofenealxs.supabase.co',
+  supabaseKey: 'sb_publishable_LbDSontdvVmQkvA0iq0DSw_D1FkKUYj'
 };
