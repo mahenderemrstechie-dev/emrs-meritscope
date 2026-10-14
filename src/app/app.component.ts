@@ -118,9 +118,9 @@ interface CategoryView extends CategoryStat { shared_count: number; imported_cou
       </div>
       <div *ngIf="adminImportSummary" class="import-summary">{{ adminImportSummary }}</div>
     </section>
-    <section id="reports" class="panel reports-panel"><div class="panel-title"><div><div class="eyebrow green">DATA TOOLS</div><h2>Import & export reports</h2><p>Import a CSV/Excel file. Each import replaces the prior local import so it isn't accidentally counted twice.</p></div></div>
-      <div class="report-actions"><label class="btn btn-outline upload-btn">Preview Excel / CSV<input type="file" accept=".xlsx,.xls,.csv" (change)="importFile($event)" /></label><a class="btn btn-primary" href="#admin-import">Save imported file to Supabase ↓</a><button class="btn btn-outline" (click)="clearImport()" [disabled]="!importedCandidates.length">Clear imported data</button><button class="btn btn-outline" (click)="downloadCsv()">Download combined CSV</button><button class="btn btn-primary" (click)="exportPdf()">Export combined PDF</button></div>
-      <div *ngIf="importSummary" class="import-summary">{{ importSummary }}</div><p class="form-footnote">Supported score headers include Tier 2 Score, Tier2 Score, Score, Marks, and Total Marks. Post/category aliases are normalised where possible. Previewing a file does not save it. To persist TGT CS merit-list rows, use the Save imported file to Supabase link, sign in as an allow-listed admin, confirm the file, and run the protected import. Other spreadsheet formats cannot be saved through this restricted merit-list importer.</p>
+    <section id="reports" class="panel reports-panel"><div class="panel-title"><div><div class="eyebrow green">DATA TOOLS</div><h2>Import & export reports</h2><p>For permanent storage, send the TGT CS merit-list file to the protected Supabase importer.</p></div></div>
+      <div class="report-actions"><label class="btn btn-primary upload-btn">Import merit list to database<input type="file" accept=".xlsx,.xls,.csv" (change)="selectPersistentImport($event)" /></label><label class="btn btn-outline upload-btn">Preview scores only<input type="file" accept=".xlsx,.xls,.csv" (change)="importFile($event)" /></label><button class="btn btn-outline" (click)="clearImport()" [disabled]="!importedCandidates.length">Clear preview</button><button class="btn btn-outline" (click)="downloadCsv()">Download combined CSV</button><button class="btn btn-outline" (click)="exportPdf()">Export combined PDF</button></div>
+      <div *ngIf="importSummary" class="import-summary">{{ importSummary }}</div><p class="form-footnote">“Import merit list to database” selects the file for the persistent importer below. Sign in with an allow-listed Supabase admin account, confirm authorisation, then click Validate and import into Supabase. The local preview button never writes to the database. Persistent imports require the documented Supabase migration to be applied first.</p>
     </section>
     <footer>EMRS MeritScope · Independent candidate analysis · Not an official recruitment portal</footer>
   </main>
@@ -287,21 +287,48 @@ export class AppComponent implements OnInit {
     this.adminBusy=false;
     if (error || !data.user) { this.adminImportSummary='Sign-in failed. Check the email/password and Supabase Auth settings.'; return; }
     const { data: allowlisted, error: allowError } = await this.supabase.from('admin_users').select('user_id').eq('user_id',data.user.id).maybeSingle();
-    if (allowError || !allowlisted) {
+    if (allowError) {
       await this.supabase.auth.signOut(); this.adminSignedIn=false; this.adminUserId=null;
-      this.adminImportSummary='This account is not allow-listed as an importer. Ask the project owner to add this Auth user UUID to public.admin_users.';
+      this.adminImportSummary=allowError.code==='42P01' || /admin_users|relation.*does not exist/i.test(allowError.message)
+        ? 'Database setup is incomplete: public.admin_users was not found. Apply supabase/schema.sql (if needed), then supabase/migrations/20261014_admin_merit_import.sql in the configured Supabase project.'
+        : `Could not verify admin access: ${allowError.message}. Confirm the admin-import migration and row-level security policies are applied.`;
+      return;
+    }
+    if (!allowlisted) {
+      await this.supabase.auth.signOut(); this.adminSignedIn=false; this.adminUserId=null;
+      this.adminImportSummary='This account is not allow-listed as an importer. Add this signed-in Auth user UUID to public.admin_users, then sign in again.';
       return;
     }
     this.adminSignedIn=true; this.adminUserId=data.user.id; this.adminPassword='';
-    this.adminImportSummary='Admin access verified. Choose the TGT CS merit-list file to validate and import.';
+    this.adminImportSummary=this.adminFile
+      ? `Admin access verified. Selected file: ${this.adminFile.name}. Confirm authorisation, then validate and import it.`
+      : 'Admin access verified. Choose the TGT CS merit-list file to validate and import.';
   }
   async adminSignOut(): Promise<void> {
     if (this.supabase) await this.supabase.auth.signOut();
     this.adminSignedIn=false; this.adminUserId=null; this.adminFile=null; this.adminImportConfirmed=false;
     this.adminImportSummary='Signed out from admin import.';
   }
+  selectPersistentImport(event: Event): void {
+    const input=event.target as HTMLInputElement;
+    const file=input.files?.[0] ?? null;
+    input.value='';
+    if(!file) return;
+    this.adminFile=file;
+    this.adminImportConfirmed=false;
+    this.adminImportSummary=this.adminSignedIn
+      ? `Selected ${file.name}. Confirm authorisation, then click Validate and import into Supabase.`
+      : `Selected ${file.name}. Sign in below with an allow-listed Supabase admin account, confirm authorisation, then click Validate and import into Supabase.`;
+    document.getElementById('admin-import')?.scrollIntoView({behavior:'smooth',block:'start'});
+  }
   onAdminFileSelected(event: Event): void {
-    const input=event.target as HTMLInputElement; this.adminFile=input.files?.[0] ?? null; this.adminImportSummary=''; input.value='';
+    const input=event.target as HTMLInputElement;
+    this.adminFile=input.files?.[0] ?? null;
+    this.adminImportConfirmed=false;
+    this.adminImportSummary=this.adminFile
+      ? `Selected ${this.adminFile.name}. Confirm authorisation, then click Validate and import into Supabase.`
+      : '';
+    input.value='';
   }
   async importToSupabase(): Promise<void> {
     if (!this.supabase || !this.adminSignedIn || !this.adminUserId || !this.adminFile || !this.adminImportConfirmed) {
