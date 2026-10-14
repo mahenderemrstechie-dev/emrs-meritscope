@@ -287,9 +287,16 @@ export class AppComponent implements OnInit {
     this.adminBusy=false;
     if (error || !data.user) { this.adminImportSummary='Sign-in failed. Check the email/password and Supabase Auth settings.'; return; }
     const { data: allowlisted, error: allowError } = await this.supabase.from('admin_users').select('user_id').eq('user_id',data.user.id).maybeSingle();
-    if (allowError || !allowlisted) {
+    if (allowError) {
       await this.supabase.auth.signOut(); this.adminSignedIn=false; this.adminUserId=null;
-      this.adminImportSummary='This account is not allow-listed as an importer. Ask the project owner to add this Auth user UUID to public.admin_users.';
+      this.adminImportSummary=allowError.code==='42P01' || /admin_users|relation.*does not exist/i.test(allowError.message)
+        ? 'Database setup is incomplete: public.admin_users was not found. Apply supabase/schema.sql (if needed), then supabase/migrations/20261014_admin_merit_import.sql in the configured Supabase project.'
+        : `Could not verify admin access: ${allowError.message}. Confirm the admin-import migration and row-level security policies are applied.`;
+      return;
+    }
+    if (!allowlisted) {
+      await this.supabase.auth.signOut(); this.adminSignedIn=false; this.adminUserId=null;
+      this.adminImportSummary='This account is not allow-listed as an importer. Add this signed-in Auth user UUID to public.admin_users, then sign in again.';
       return;
     }
     this.adminSignedIn=true; this.adminUserId=data.user.id; this.adminPassword='';
