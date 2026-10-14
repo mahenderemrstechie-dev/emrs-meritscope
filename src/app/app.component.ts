@@ -102,6 +102,22 @@ interface CategoryView extends CategoryStat { shared_count: number; imported_cou
       </article>
     </section>
 
+    <section id="admin-import" class="panel admin-import-panel"><div class="panel-title"><div><div class="eyebrow green">RESTRICTED ADMIN TOOL</div><h2>Import merit list to shared database</h2><p>Only an account explicitly allow-listed in Supabase can use this import. Imported candidate names are never returned by the public dashboard.</p></div><span class="pill">Admin only</span></div>
+      <div *ngIf="!adminSignedIn" class="admin-login">
+        <label>Admin email<input type="email" name="adminEmail" [(ngModel)]="adminEmail" autocomplete="username" placeholder="Admin email" /></label>
+        <label>Admin password<input type="password" name="adminPassword" [(ngModel)]="adminPassword" autocomplete="current-password" placeholder="Supabase Auth password" /></label>
+        <button class="btn btn-outline" (click)="adminSignIn()" [disabled]="adminBusy || !adminEmail.trim() || !adminPassword">{{ adminBusy ? 'Checking admin access…' : 'Sign in as admin' }}</button>
+        <p class="form-footnote">Create the account in Supabase Authentication, then add its user UUID to public.admin_users using the SQL instructions in the README. Sign-in alone does not grant admin access.</p>
+      </div>
+      <div *ngIf="adminSignedIn" class="admin-import-controls">
+        <div class="admin-session"><span>Signed in as <strong>{{ adminEmail }}</strong></span><button class="btn btn-outline" (click)="adminSignOut()" [disabled]="adminBusy">Sign out</button></div>
+        <label class="file-drop">Choose TGT CS merit-list CSV / Excel<input type="file" accept=".csv,.xlsx,.xls" (change)="onAdminFileSelected($event)" /><small>{{ adminFile?.name || 'Expected columns: Rank, Name, Category, Marks, Age Relaxed, DV Status, Other Govt Job' }}</small></label>
+        <div class="admin-confirm"><label><input type="checkbox" [(ngModel)]="adminImportConfirmed" name="adminImportConfirmed" /> I confirm this is the TGT Computer Science list, marks are out of 100, and I am authorised to import these records.</label></div>
+        <button class="btn btn-primary" (click)="importToSupabase()" [disabled]="adminBusy || !adminFile || !adminImportConfirmed">{{ adminBusy ? 'Validating / importing…' : 'Validate and import into Supabase' }}</button>
+        <p class="form-footnote">Import is idempotent by merit-list rank: existing import keys are skipped rather than duplicated. This operation stores the supplied candidate name and list metadata in the private table; public analytics expose aggregates only.</p>
+      </div>
+      <div *ngIf="adminImportSummary" class="import-summary">{{ adminImportSummary }}</div>
+    </section>
     <section id="reports" class="panel reports-panel"><div class="panel-title"><div><div class="eyebrow green">DATA TOOLS</div><h2>Import & export reports</h2><p>Import a CSV/Excel file. Each import replaces the prior local import so it isn't accidentally counted twice.</p></div></div>
       <div class="report-actions"><label class="btn btn-outline upload-btn">Import Excel / CSV<input type="file" accept=".xlsx,.xls,.csv" (change)="importFile($event)" /></label><button class="btn btn-outline" (click)="clearImport()" [disabled]="!importedCandidates.length">Clear imported data</button><button class="btn btn-outline" (click)="downloadCsv()">Download combined CSV</button><button class="btn btn-primary" (click)="exportPdf()">Export combined PDF</button></div>
       <div *ngIf="importSummary" class="import-summary">{{ importSummary }}</div><p class="form-footnote">Supported score headers include Tier 2 Score, Tier2 Score, Score, Marks, and Total Marks. Post/category aliases are normalised where possible. Imported rows remain in this browser session only and are not uploaded to Supabase.</p>
@@ -117,6 +133,8 @@ export class AppComponent implements OnInit {
   private supabase: SupabaseClient | null = null;
   private sharedDashboard: Dashboard = { total_submissions: 0, score_90_plus: 0, score_85_plus: 0, score_80_plus: 0, average_score: null, highest_score: null, by_post_category: [] };
   importedCandidates: ImportedCandidate[] = [];
+  adminEmail = ''; adminPassword = ''; adminBusy = false; adminSignedIn = false; adminImportConfirmed = false;
+  adminFile: File | null = null; adminImportSummary = ''; private adminUserId: string | null = null;
   get isConfigured(): boolean { return !!this.supabase; }
   loading = false; submitting = false; consent = false; statusMessage = ''; statusIsError = false; importSummary = ''; postFilter = 'All';
   form: CandidateSubmission = { candidate_name: '', post_applied: 'TGT CS', category: 'OBC-NCL', tier1_qualified: true, tier1_category: null, tier2_score: 0, relaxation_used: 'Prefer not to say', score_type: 'Estimated' };
@@ -258,6 +276,70 @@ export class AppComponent implements OnInit {
     pdf.setFontSize(8); pdf.text('Post',12,y); pdf.text('Category',40,y); pdf.text('Total',70,y); pdf.text('Shared',88,y); pdf.text('Imported',108,y); pdf.text('Average',132,y); pdf.text('Highest',154,y); pdf.text('90+',178,y); pdf.text('85+',194,y); pdf.text('80+',210,y); y+=6;
     for (const r of this.filteredStats) { if(y>185){pdf.addPage();y=16;} pdf.text(r.post_applied,12,y);pdf.text(r.category,40,y);pdf.text(String(r.candidate_count),70,y);pdf.text(String(r.shared_count),88,y);pdf.text(String(r.imported_count),108,y);pdf.text(String(r.average_score??'—'),132,y);pdf.text(String(r.highest_score??'—'),154,y);pdf.text(String(r.score_90_plus),178,y);pdf.text(String(r.score_85_plus),194,y);pdf.text(String(r.score_80_plus),210,y);y+=6; }
     pdf.save('emrs-meritscope-combined-report.pdf');
+  }
+  async adminSignIn(): Promise<void> {
+    if (!this.supabase) { this.adminImportSummary='Supabase is not configured.'; return; }
+    this.adminBusy=true; this.adminImportSummary='';
+    const { data, error } = await this.supabase.auth.signInWithPassword({ email:this.adminEmail.trim(), password:this.adminPassword });
+    this.adminBusy=false;
+    if (error || !data.user) { this.adminImportSummary='Sign-in failed. Check the email/password and Supabase Auth settings.'; return; }
+    const { data: allowlisted, error: allowError } = await this.supabase.from('admin_users').select('user_id').eq('user_id',data.user.id).maybeSingle();
+    if (allowError || !allowlisted) {
+      await this.supabase.auth.signOut(); this.adminSignedIn=false; this.adminUserId=null;
+      this.adminImportSummary='This account is not allow-listed as an importer. Ask the project owner to add this Auth user UUID to public.admin_users.';
+      return;
+    }
+    this.adminSignedIn=true; this.adminUserId=data.user.id; this.adminPassword='';
+    this.adminImportSummary='Admin access verified. Choose the TGT CS merit-list file to validate and import.';
+  }
+  async adminSignOut(): Promise<void> {
+    if (this.supabase) await this.supabase.auth.signOut();
+    this.adminSignedIn=false; this.adminUserId=null; this.adminFile=null; this.adminImportConfirmed=false;
+    this.adminImportSummary='Signed out from admin import.';
+  }
+  onAdminFileSelected(event: Event): void {
+    const input=event.target as HTMLInputElement; this.adminFile=input.files?.[0] ?? null; this.adminImportSummary=''; input.value='';
+  }
+  async importToSupabase(): Promise<void> {
+    if (!this.supabase || !this.adminSignedIn || !this.adminUserId || !this.adminFile || !this.adminImportConfirmed) {
+      this.adminImportSummary='Sign in with an allow-listed admin account, select the CSV, and confirm the import.'; return;
+    }
+    this.adminBusy=true; this.adminImportSummary='';
+    let parsed: Array<{import_key:string;candidate_rank:number;candidate_name:string;category:string;tier2_score:number;relaxation_used:string;dv_status:string;other_govt_job:string;post_applied:string}> = [];
+    let invalid=0; const filename=this.adminFile.name;
+    try {
+      const workbook=XLSX.read(await this.adminFile.arrayBuffer(),{type:'array'});
+      const sheet=workbook.Sheets[workbook.SheetNames[0]];
+      if(!sheet) throw new Error('No worksheet found.');
+      const rows=XLSX.utils.sheet_to_json<Record<string,unknown>>(sheet,{defval:null,raw:false});
+      rows.forEach((row,index)=>{
+        const fields=new Map<string,unknown>(); Object.entries(row).forEach(([k,v])=>fields.set(this.normaliseHeader(k),v));
+        const rank=Number(this.firstField(fields,['rank','rankno','meritrank']));
+        const name=String(this.firstField(fields,['name','candidatename','candidate','fullname'])??'').trim();
+        const category=this.normaliseCategory(this.firstField(fields,['category','applicationcategory','socialcategory','reservationcategory','cat']));
+        const score=this.parseScore(this.firstField(fields,['marks','score','tier2score','tier2marks','totalmarks']));
+        if(!Number.isInteger(rank)||rank<1||!name||!category||score===null||score<0||score>100){invalid++;return;}
+        const age=String(this.firstField(fields,['agerelaxed','agerelaxation','relaxationused'])??'').trim().toLowerCase();
+        const relaxation=age==='yes'||age==='true'?'Yes':age==='no'||age==='false'?'No':'Prefer not to say';
+        const dv=String(this.firstField(fields,['dvstatus','documentverificationstatus'])??'Not Specified').trim().slice(0,100)||'Not Specified';
+        const other=String(this.firstField(fields,['othergovtjob','othergovernmentjob','othergovtservice'])??'Not Specified').trim().slice(0,150)||'Not Specified';
+        parsed.push({import_key:'emrs-tgt-cs-merit-2026-rank-'+rank,candidate_rank:rank,candidate_name:name,category,tier2_score:score,relaxation_used:relaxation,dv_status:dv,other_govt_job:other,post_applied:'TGT CS'});
+      });
+      if(!parsed.length) throw new Error('No valid rows found. Expected Rank, Name, Category and Marks; marks must be 0–100.');
+      let inserted=0, skipped=0;
+      for(let i=0;i<parsed.length;i+=100){
+        const {data,error}=await this.supabase.rpc('admin_import_merit_list',{p_rows:parsed.slice(i,i+100)});
+        if(error) throw new Error(error.message);
+        const result=data as {inserted?:number;skipped?:number;received?:number}|null;
+        inserted+=Number(result?.inserted??0); skipped+=Number(result?.skipped??0);
+      }
+      this.importedCandidates=[];
+      this.adminImportSummary=`Import finished for ${filename}: ${rows.length} spreadsheet rows read; ${parsed.length} valid rows sent; ${inserted} inserted; ${skipped} already-existing ranks skipped; ${invalid} invalid rows skipped. Existing records were not overwritten. Refreshing shared dashboard…`;
+      await this.refreshDashboard();
+      this.adminFile=null; this.adminImportConfirmed=false;
+    } catch(error) {
+      this.adminImportSummary=`Import stopped: ${error instanceof Error?error.message:'unknown error'}. If an earlier batch succeeded, re-running is safe: matching merit-list ranks are skipped.`;
+    } finally { this.adminBusy=false; }
   }
   private metricFor(scores: number[]): Metric {
     const total=scores.length; return {total,avg:total?Math.round(scores.reduce((s,n)=>s+n,0)/total*100)/100:null,highest:total?Math.max(...scores):null,score90:scores.filter(n=>n>=90).length,score85:scores.filter(n=>n>=85).length,score80:scores.filter(n=>n>=80).length};
